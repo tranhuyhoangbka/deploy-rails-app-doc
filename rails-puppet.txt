@@ -1,0 +1,104 @@
+1, setting VM
+mkdir puppetvm
+cd puppetvm
+vagrant init
+Vagrantfile:
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "lucid64_with_ruby193"
+  config.vm.host_name = "app"
+  config.vm.network "forwarded_port", guest: 22, host: 2222, auto: true
+  config.vm.network "private_network", ip: "33.33.13.37"
+  config.vm.synced_folder "../massiveapp_ops", "/etc/puppet"
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "512"
+    vb.name = "app"
+  end
+end
+
+sau khi start VM và ssh vào nó, chúng ta có thể asscess tới git repo thông qua shared folder
+cd /etc/puppet 
+nội dung trong folder này giống nội dung ../massiveapp_ops ngoài host (thư mục chứa project)
+
+2, Install Puppet gem
+- Tạo một puppet user
+sudo useradd --comment "Puppet" --no-create-home --system --shell /bin/false puppet
+- Install gem
+sudo gem install puppet -v 2.7.12 --no-rdoc --no-ri
+
+-Tạo thư mục manifests để chứa các file cấu hình puppet chính
+app $ cd /etc/puppet
+app $ mkdir manifests
+cd manifests
+touch site.pp
+vi site.pp
+Exec {
+  path => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+}
+nội dung file site.pp để puppet có thể tìm thấy binaries cho các sự cài đặt ruby và rubygems 
+Để commit nội dung này lên git repo trước hết cần set up một git username
+
+vagrant@app:~$ git config --global user.name "tranhuyhoangbka"
+vagrant@app:~$ git config --global user.email hoangth92.nd@gmail.com
+
+cd /etc/puppet
+git add .
+git commit -m "Initial Puppet manifests"
+
+puppet help
+puppet help apply
+
+sudo puppet apply --verbose manifests/site.pp
+puppet dùng một số directories để lưu system info, security certificates, internal files
+câu lệnh trên dùng để setting puppet có quyền để tạo các thư mục đó
+
+Các lựa chọn về mặt công nghệ: Apache cho web server, Passenger cho application server, mysql cho databas server sẽ chạy cho MassiveApp
+
+Như vậy chúng ta đã xây dựng thành công 1 tiny puppet repo, và thực thi puppet trên VM, bây giờ chúng ta sẽ xây dựn VM với
+standard Rails application stack. chúng ta sẽ cấu hình apache, mysql, passenger. chúng ta sẽ học được cách puppet giúp chúng ta quản lý VM services và sự cấu hình
+
+*********  Cài đặt Apache với puppet
+Chúng ta cần định nghĩa một puppet manifest để cài đặt và cấu hình apache
+xây dựng một initial apache puppet manifest 
+chúng ta có thể cài đặt apache theo cách sudo apt-get install apache2 -y
+nhưng chúng ta muốn cài đặt theo hướng dùng puppet để cài đặt nó 
+chúng ta cần tạo một resource để nói với puppet những gì chúng ta cần cài đặt
+trong trường hợp này puppet gọi loại resource này một package
+/etc/puppet/manifests/site.pp
+
+Exec {
+  path => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+}
+package {
+  "apache2":
+    ensure => present
+}
+
+để có sự mô tả đầy đủ về package resource type dùng lệnh:   app $ puppet describe package
+
+sudo puppet apply --verbose manifests/site.pp
+chạy puppet client để đặt các resources vào đúng place
+dpkg --list apache2
+
+các script install package ubuntu sẽ có hiệu lực khi boot (restart lại máy), nhưng sau đó nếu xảy ra sự thay đổi về hệ thống
+thì apache không tự động start lại. chúng ta có thể đảm bảo khả năng đó với một loại puppet khác là service, nó giúp chúng ta
+quản lý bất kỳ loại background process nào mà chúng ta muốn nó chạy.
+
+Exec {
+  path => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+}
+package {
+  "apache2":
+    ensure => present
+}
+service {
+  "apache2":
+    ensure => true,
+    enable => true
+}
+set ensure tới true, để nói với puppet start service nếu nó đang không chạy, set enable tới true để chắc rằng service này
+được start khi boot
+
+puppet describe service
+để có nhiều thông tin hơn về service
+

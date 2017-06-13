@@ -1,0 +1,143 @@
+vagrant box add lucid64 http://files.vagrantup.com/lucid64.box
+$ cd ~/deployingrails/
+$ mkdir first_box
+$ cd first_box
+$ vagrant init
+
+in file introduction/Vagrantfile
+Vagrant::Config.run do |config|
+  config.vm.box = "lucid64"
+end
+
+create a VM
+vagrant up
+
+connect into new VM using ssh
+vagrant ssh
+=> vagrant@lucid64:~$
+
+$ ssh -p 2222 \
+-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null vagrant@localhost
+password: vagrant
+$ ssh -p 2222 \
+-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+-i ~/.vagrant.d/insecure_private_key vagrant@localhost
+
+destroy a VM
+vagrant destroy --force
+
+update packages before install ruby to server VM
+vì bản ubuntu này rất cũ rồi nên khi chạy các lệnh liên quan tới apt-get sẽ fail để sửa vấn đề này cần mở file
+/etc/apt/sources.list sau đó sửa tất cả các chỗ us.archive.ubuntu.com, security.ubuntu.com thành old-releases.ubuntu.com
+
+vm $ sudo apt-get update -y
+vm $ sudo apt-get install build-essential zlib1g-dev libssl-dev libreadline-dev git-core curl libyaml-dev libcurl4-dev libsqlite3-dev apache2-dev -y
+
+sudo rm -rf /opt/vagrant_ruby
+curl --remote-name http://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.3-p194.tar.gz
+tar zxf ruby-1.9.3-p194.tar.gz
+cd ruby-1.9.3-p194/
+./configure
+make
+sudo make install
+ruby -v
+gem list
+
+vm $ exit 
+$ vagrant package 
+gói VM thành một new base box nó tạo ra 1 file package.box trong thư mục hiện tại 
+
+vagrant box add lucid64_with_ruby193 package.box
+rename package và thêm nó tới box list 
+
+vagrant box list 
+liệt kê các box 
+
+- Dùng lại base box vừa được đóng gói thành lucid64_with_ruby193 để tạo một VM mới với các setting đã được định nghĩa từ trước
+mkdir ~/deployingrails/vagrant_testbox
+cd ~/deployingrails/vagrant_testbox
+vagrant init lucid64_with_ruby193
+vagrant up
+vagrant ssh 
+ruby -v
+gem list 
+
+$ VBoxManage --help | grep -A 10 modifyvm
+Để setting tên và memory của host cần dùng config.vm.customize được định nghĩa trong file Vagrantfile
+config.vm.customize ["modifyvm", :id, "--name", "app", "--memory", "512"]
+
+vagrant reload 
+to restart VM
+
+Setting port cho host là 2222, 4567. Port cho VM là 22, 80. Browsing port 4567 on host sẽ cho chúng ta view những gì
+VM brow trên port 80
+config.vm.forward_port 22, 2222, :auto => true
+config.vm.forward_port 80, 4567
+cú pháp trên đã cũ cần dùng cú pháp dưới thay thế
+config.vm.network "forwarded_port", guest: 80, host: 4567
+
+setting network xác định rằng VM này sẽ dùng 1 host-only network tránh dùng các subnets phổ biến như 127.0.0.2, 192.168.*
+vagrant documents khuyên nên dùng 33.33.*. với setting này VM có IP là 33.33.12.34 có thể nc với 33.33.12.56 nhưng ko
+nc với 33.44.12.34
+config.vm.network :hostonly, "33.33.13.37"
+cú pháp trên đã cũ cần dùng cú pháp dưới để thay thế
+config.vm.network "private_network", ip: "33.33.13.37"
+
+- Sharing folder
+config.vm.synced_folder "../tmp", "/hosttmp"
+tmp is host folder
+hosttmp is VM folder
+
+- multi VMS
+Vagrantfile
+
+Vagrant::Config.run do |config|
+  config.vm.define :app do |app_config|
+    app_config.vm.customize ["modifyvm", :id, "--name", "app", "--memory", "128"]
+    app_config.vm.box = "lucid64_with_ruby193"
+    app_config.vm.host_name = "app"    
+    config.vm.network "forwarded_port", guest: 80, host: 4567
+    config.vm.network "private_network", ip: "33.33.13.37"
+  end
+  config.vm.define :db do |db_config|
+    db_config.vm.customize ["modifyvm", :id, "--name", "db", "--memory", "128"]
+    db_config.vm.box = "lucid64_with_ruby193"
+    db_config.vm.host_name = "db"
+    config.vm.network "private_network", ip: "33.33.13.38"
+  end
+end
+
+vagrant up
+vagrant destroy --force
+shutdown và destroy all VMs
+=============
+Conclusion chapter 2:
+
+To create a new VM using Vagrant, simply run the following commands:
+$ mkdir newdir && cd newdir
+$ vagrant init lucid64 && vagrant up
+
+Creating a Custom Base Box
+To cut down on initial box setup, create a customized base box.
+
+mkdir newdir && cd newdir $ vagrant init lucid64 && vagrant up
+
+Now 'vagrant ssh' and make your changes, then log out of the VM
+
+vagrant package
+vagrant box add your_new_base_box_name package.box
+
+A Complete Vagrantfile
+Here’s a Vagrantfile that uses a custom base box, shares a folder, forwards an
+additional port, and uses a private host-only network:
+vagrant/with_options/Vagrantfile
+
+Vagrant::Config.run do |config|
+  config.vm.customize ["modifyvm", :id, "--name", "app", "--memory", "512"]
+  config.vm.box = "lucid64_with_ruby193"
+  config.vm.host_name = "app"
+  config.vm.forward_port 22, 2222, :auto => true
+  config.vm.forward_port 80, 4567
+  config.vm.network :hostonly, "33.33.13.37"
+  config.vm.share_folder "hosttmp", "/hosttmp", "/tmp"
+end
